@@ -1,4 +1,5 @@
 import json
+import math
 import frappe
 from frappe import _
 
@@ -27,6 +28,7 @@ ETAX_DOCTYPE = {
 
 def prepare_data(d, ft, fm, pdf):
     currency_code = d["currency_code"]  # doc.currenty_id.name
+    footer_discount = _footer_discount_amount(d)
     data = {
         "auto_submit": 1,
         "form_type": ft,
@@ -110,6 +112,17 @@ def prepare_data(d, ft, fm, pdf):
     i = 0
     for l in d["line_item_information"]:  # doc.invoice_line_ids.filtered(lambda l: not l.display_type and l.price_unit > 0)
         i += 1
+        allowance_amount = round(l.get("line_allowance_actual_amount", 0.00), 2)
+        allowance_indicator = l.get("line_allowance_charge_ind", "")
+        if isinstance(allowance_indicator, bool):
+            allowance_indicator = str(allowance_indicator).lower()
+        # The workbook represents a deposit as a zero-value line with L27.
+        # Infer the discount indicator for existing callers sending only L27.
+        if not allowance_indicator and allowance_amount > 0 and all(
+            l[key] == 0
+            for key in ("product_price", "line_base_amount", "line_tax_amount", "line_total_amount")
+        ):
+            allowance_indicator = "false"
         lines.append(
             {
                 "l01_line_id": str(i),
@@ -152,8 +165,8 @@ def prepare_data(d, ft, fm, pdf):
                 # and (line.price_total - line.price_subtotal)
                 # or 0.00,
                 "l25_line_tax_cal_currency_code": currency_code or "",
-                "l26_line_allowance_charge_ind": "",
-                "l27_line_allowance_actual_amount": round(l.get("line_allowance_actual_amount", 0.00), 2) or 0.00,
+                "l26_line_allowance_charge_ind": allowance_indicator,
+                "l27_line_allowance_actual_amount": allowance_amount or 0.00,
                 "l28_line_allowance_actual_currency_code": currency_code or "",
                 "l29_line_allowance_reason_code": "",
                 "l30_line_allowance_reason": "",
@@ -185,7 +198,8 @@ def prepare_data(d, ft, fm, pdf):
     )  # list of (tax_code, rate)
     i = 0
     taxes = {}
-    line_total = sum(line["l33_line_net_total_amount"] for line in lines)
+    item_deposit_total = sum(_item_deposit_amount(line) for line in lines)
+    line_total = sum(line["l33_line_net_total_amount"] for line in lines) - item_deposit_total
     base_total = 0
     tax_total = 0
     for tax_group in tax_groups:
@@ -197,9 +211,14 @@ def prepare_data(d, ft, fm, pdf):
                 lines,
             )
         )
-        base_amount = sum(line["l22_line_basis_amount"] for line in tax_lines)
+        # Keep the zero-value deposit line in the payload and apply its
+        # allowance only to the matching tax group's document totals.
+        deposit_amount = sum(_item_deposit_amount(line) for line in tax_lines)
+        base_amount = sum(line["l22_line_basis_amount"] for line in tax_lines) - deposit_amount
         base_total += base_amount
         tax_amount = sum(line["l24_line_tax_cal_amount"] for line in tax_lines)
+        if deposit_amount and tax_group[0] == "VAT":
+            tax_amount -= round(deposit_amount * float(tax_group[1]) / 100, 2)
         tax_total += tax_amount
         taxes[i] = {
             "tax_code": tax_group[0],
@@ -212,12 +231,77 @@ def prepare_data(d, ft, fm, pdf):
     base_total = round(base_total, 2)
     tax_total = round(tax_total, 2)
 
-    # Total down payment
+    # Explicit line allowances remain item-level deductions. Their signed
+    # amounts already contributed to the totals above; only legacy unmarked
+    # negative lines represent footer deposits.
+    signed_item_deposit_total = sum(
+        -line["l22_line_basis_amount"] for line in lines
+        if _is_signed_item_allowance(line)
+    )
+    # Total footer down payment
     down_payment_amount = abs(sum(
         line.get("l22_line_basis_amount", 0) for line in lines if line.get("l22_line_basis_amount", 0) < 0
+        and not _is_signed_item_allowance(line)
     ))
-    # filter out negative l22_line_basis_amount from lines
+    # F42 reports every deduction, including allowances already reflected in
+    # the line amounts. Do not subtract this summary from the tax basis again.
+    # Signed/zero-value item deposits carry L27; legacy footer deposits do not.
+    item_allowance_total = sum(
+        line["l27_line_allowance_actual_amount"] for line in lines
+        if line["l26_line_allowance_charge_ind"] == "false"
+        and line["l27_line_allowance_actual_amount"] > 0
+    )
+    # Capture F38 before deducting the footer discount. Line amounts already
+    # include item discounts and deposits, but not the new footer allowance.
+    subtotal = (
+        round(line_total + down_payment_amount, 2)
+        if item_deposit_total or signed_item_deposit_total or down_payment_amount or footer_discount
+        else round(d["final_amount_untaxed"], 2) or 0.00
+    )
+    if footer_discount:
+        # The workbook defines a single tax group only. Without an allocation
+        # contract, mixed or unclassified lines cannot receive this discount.
+        if len(taxes) != 1 or any(not line["l20_line_tax_type_code"] for line in lines):
+            raise ValueError(_("Footer discount requires a single explicit tax group on all lines."))
+        tax = taxes[1]
+        try:
+            rate = float(tax["tax_rate"])
+        except (ValueError, TypeError, OverflowError):
+            rate = float("nan")
+        if (
+            tax["tax_code"] not in ("VAT", "FRE")
+            or not math.isfinite(rate) or rate < 0
+            or (tax["tax_code"] == "FRE" and rate != 0)
+        ):
+            raise ValueError(_("Footer discount supports VAT at a non-negative rate or FRE at rate 0."))
+        if footer_discount > base_total or footer_discount > line_total:
+            raise ValueError(_("allowance_actual_amount exceeds the remaining basis after deposits."))
+        if not currency_code:
+            raise ValueError(_("currency_code is required for a footer discount."))
+        discount_tax = round(footer_discount * rate / 100, 2) if tax["tax_code"] == "VAT" else 0
+        if discount_tax > tax_total:
+            raise ValueError(_("Footer discount tax exceeds the remaining tax amount; check line tax amounts."))
+        line_total = round(line_total - footer_discount, 2)
+        base_total = round(base_total - footer_discount, 2)
+        tax_total = round(tax_total - discount_tax, 2)
+        tax.update(base_amount=base_total, tax_amount=tax_total)
+
+    # Render signed item allowances using the workbook's zero-value row.
+    # Do this AFTER summing the signed amounts so supplied VAT rounding is
+    # preserved and the allowance is deducted exactly once.
+    for line in lines:
+        if _is_signed_item_allowance(line):
+            for key in (
+                "l10_product_charge_amount", "l22_line_basis_amount",
+                "l24_line_tax_cal_amount", "l31_line_tax_total_amount",
+                "l33_line_net_total_amount", "l35_line_net_include_tax_total_amount",
+            ):
+                line[key] = 0.0
+            line["l17_product_quantity"] = 1
+    # Only legacy footer-deposit rows are removed from the displayed items.
     lines = [line for line in lines if line["l22_line_basis_amount"] >= 0]
+    for index, line in enumerate(lines, 1):
+        line["l01_line_id"] = str(index)
 
     # --
     footer = {
@@ -253,21 +337,23 @@ def prepare_data(d, ft, fm, pdf):
         "f26_tax_cal_amount4": taxes.get(3) and taxes[3]["tax_amount"] or 0.00,
         "f27_tax_cal_currency_code4": currency_code,
         # Allowance / Charge
-        "f28_allowance_charge_ind": "",
-        "f29_allowance_actual_amount": "",
+        "f28_allowance_charge_ind": "false" if footer_discount else "",
+        "f29_allowance_actual_amount": footer_discount or "",
         "f30_allowance_actual_currency_code": currency_code or "",
-        "f31_allowance_reason_code": "",
-        "f32_allowance_reason": "",
+        "f31_allowance_reason_code": (d.get("allowance_reason_code") or "") if footer_discount else "",
+        "f32_allowance_reason": (d.get("allowance_reason") or "") if footer_discount else "",
         "f33_payment_type_code": "",
         "f34_payment_description": "",
         "f35_payment_due_dtm": "",
         "f36_original_total_amount": round(d["original_amount_untaxed"], 2) or 0.00,   # doc._get_additional_amount()[0],
         "f37_original_total_currency_code": currency_code or "",
-        "f38_line_total_amount": round(d["final_amount_untaxed"], 2) or 0.00,   # doc._get_additional_amount()[2],
+        "f38_line_total_amount": subtotal,
         "f39_line_total_currency_code": currency_code or "",
         "f40_adjusted_information_amount": round(d["adjust_amount_untaxed"], 2) or 0.00,   # doc._get_additional_amount()[2],
         "f41_adjusted_information_currency_code": currency_code or "",
-        "f42_allowance_total_amount": round(down_payment_amount, 2) or 0.00, # In case of down payment
+        "f42_allowance_total_amount": round(
+            item_allowance_total + down_payment_amount + footer_discount, 2
+        ) or 0.00,
         "f43_allowance_total_currency_code": currency_code or "",
         "f44_charge_total_amount": "",
         "f45_charge_total_currency_code": currency_code or "",
@@ -313,3 +399,71 @@ def prepare_data(d, ft, fm, pdf):
     data.update({"line_item_information": lines})
     data.update(footer)
     return data
+
+
+def _footer_discount_amount(data):
+    """Read the optional, tax-exclusive footer allowance in invoice currency.
+
+    Missing/empty indicators imply a discount; boolean False is explicit.
+    Charges are not supported. Missing/empty/zero amounts preserve the legacy
+    footer. Amounts use the same two-decimal rounding as existing line inputs.
+    """
+    indicator = data.get("allowance_charge_ind")
+    if isinstance(indicator, bool):
+        indicator = str(indicator).lower()
+    if indicator == "true":
+        raise ValueError(_("allowance_charge_ind=true (footer charge) is not supported."))
+    if indicator not in (None, "", "false"):
+        raise ValueError(_("allowance_charge_ind must be false or omitted for a footer discount."))
+    amount = data.get("allowance_actual_amount")
+    if amount is None or amount == "":
+        return 0
+    message = _("allowance_actual_amount must be a finite, non-negative number.")
+    if isinstance(amount, bool):
+        raise ValueError(message)
+    try:
+        amount = float(amount)
+    except (ValueError, TypeError, OverflowError) as error:
+        raise ValueError(message) from error
+    if not math.isfinite(amount) or amount < 0:
+        raise ValueError(message)
+    return round(amount, 2)
+
+
+def _item_deposit_amount(line):
+    """Return the allowance on the workbook's zero-value deposit line.
+
+    Ordinary discounted items already contain their net amounts and must not
+    have their allowance deducted again. Signed lines are summed directly;
+    explicit allowances are normalized for display only after totaling.
+    """
+    if (
+        line["l26_line_allowance_charge_ind"] == "false"
+        and line["l27_line_allowance_actual_amount"] > 0
+        and all(
+            line[key] == 0
+            for key in (
+                "l10_product_charge_amount",
+                "l22_line_basis_amount",
+                "l24_line_tax_cal_amount",
+                "l35_line_net_include_tax_total_amount",
+            )
+        )
+    ):
+        return line["l27_line_allowance_actual_amount"]
+    return 0
+
+
+def _is_signed_item_allowance(line):
+    """Distinguish an explicit signed line allowance from a legacy footer deposit."""
+    if (
+        line["l22_line_basis_amount"] < 0
+        and line["l26_line_allowance_charge_ind"] == "false"
+        and line["l27_line_allowance_actual_amount"] > 0
+    ):
+        if round(line["l27_line_allowance_actual_amount"], 2) != round(
+            -line["l22_line_basis_amount"], 2
+        ):
+            raise ValueError(_("Signed line allowance must equal its negative basis amount."))
+        return True
+    return False
