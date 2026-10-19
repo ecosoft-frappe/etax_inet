@@ -79,8 +79,8 @@ class INETETaxDocument(Document):
 			doc_content["LINE_ITEM_INFORMATION"].append(item)
 
 		# Get PDF
-		# 1. Received from Odoo's, self.pdf_content may already has content
-		# 2. Use Frappe Print Format
+		# 1. form_type "frappe": render the print format in form_name on this server
+		# 2. Other form_type (odoo, erpnext, ...): the source system sent pdf_content
 		if self.form_type == "frappe":
 			# get_print will commit the document by calling self.get_html(), self.update_context()
 			html = frappe.get_print(self.doctype, self.name, self.form_name, None)
