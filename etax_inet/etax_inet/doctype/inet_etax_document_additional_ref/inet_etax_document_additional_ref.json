@@ -1,0 +1,67 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-10-26 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "a01_additional_ref_assign_id",
+  "a02_additional_ref_issue_dtm",
+  "a03_additional_ref_type_code",
+  "a04_additional_ref_document_name"
+ ],
+ "fields": [
+  {
+   "description": "\u0e40\u0e25\u0e02\u0e17\u0e35\u0e48\u0e40\u0e2d\u0e01\u0e2a\u0e32\u0e23\u0e2d\u0e49\u0e32\u0e07\u0e2d\u0e34\u0e07",
+   "fieldname": "a01_additional_ref_assign_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "A01-ADDITIONAL_REF_ASSIGN_ID",
+   "length": 35,
+   "max_height": "30px",
+   "reqd": 1
+  },
+  {
+   "description": "\u0e40\u0e2d\u0e01\u0e2a\u0e32\u0e23\u0e2d\u0e49\u0e32\u0e07\u0e2d\u0e34\u0e07\u0e25\u0e07\u0e27\u0e31\u0e19\u0e17\u0e35\u0e48",
+   "fieldname": "a02_additional_ref_issue_dtm",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "A02-ADDITIONAL_REF_ISSUE_DTM",
+   "max_height": "30px",
+   "reqd": 1
+  },
+  {
+   "description": "\u0e1b\u0e23\u0e30\u0e40\u0e20\u0e17\u0e40\u0e2d\u0e01\u0e2a\u0e32\u0e23\u0e2d\u0e49\u0e32\u0e07\u0e2d\u0e34\u0e07",
+   "fieldname": "a03_additional_ref_type_code",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "A03-ADDITIONAL_REF_TYPE_CODE",
+   "length": 3,
+   "max_height": "30px",
+   "options": "\n388\n81\nT01\nT02\nT03\nT04",
+   "reqd": 1
+  },
+  {
+   "description": "\u0e0a\u0e37\u0e48\u0e2d\u0e40\u0e2d\u0e01\u0e2a\u0e32\u0e23\u0e2d\u0e49\u0e32\u0e07\u0e2d\u0e34\u0e07",
+   "fieldname": "a04_additional_ref_document_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "A04-ADDITIONAL_REF_DOCUMENT_NAME",
+   "length": 35,
+   "max_height": "30px"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-26 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ETAX INET",
+ "name": "INET ETax Document Additional Ref",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

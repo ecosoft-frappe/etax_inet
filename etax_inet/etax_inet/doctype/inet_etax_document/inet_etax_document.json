@@ -47,6 +47,7 @@
   "h25_pdf_template_id",
   "h26_send_mail_ind",
   "h27_pdf_name",
+  "additional_document",
   "section_break_xlntf",
   "b01_buyer_id",
   "b02_buyer_name",
@@ -483,6 +484,13 @@
    "label": "H27-PDF_NAME",
    "length": 50,
    "max_height": "30px"
+  },
+  {
+   "description": "\u0e40\u0e2d\u0e01\u0e2a\u0e32\u0e23\u0e2d\u0e49\u0e32\u0e07\u0e2d\u0e34\u0e07\u0e40\u0e1e\u0e34\u0e48\u0e21\u0e40\u0e15\u0e34\u0e21 (\u0e43\u0e1a\u0e17\u0e35\u0e48 2 \u0e40\u0e1b\u0e47\u0e19\u0e15\u0e49\u0e19\u0e44\u0e1b)",
+   "fieldname": "additional_document",
+   "fieldtype": "Table",
+   "label": "ADDITIONAL_DOCUMENT",
+   "options": "INET ETax Document Additional Ref"
   },
   {
    "description": "\u0e23\u0e2b\u0e31\u0e2a\u0e1c\u0e39\u0e49\u0e0b\u0e37\u0e49\u0e2d",
@@ -1834,7 +1842,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2025-04-01 00:34:27.320937",
+ "modified": "2026-10-26 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "ETAX INET",
  "name": "INET ETax Document",

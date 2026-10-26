@@ -45,7 +45,7 @@ def prepare_data(d, ft, fm, pdf):
         "h07_additional_ref_assign_id": d["ref_document_id"] or "",  # doc.debit_origin_id.name or doc.reversed_entry_id.name or doc.replaced_entry_id.name
         "h08_additional_ref_issue_dtm": d["ref_document_issue_dtm"] or "",  # doc._get_origin_inv_date()
         "h09_additional_ref_type_code": d["ref_document_type_code"] or "",  # doc.debit_origin_id.etax_doctype or doc.reversed_entry_id.etax_doctype or doc.replaced_entry_id.etax_doctype
-        "h10_additional_ref_document_name": "",
+        "h10_additional_ref_document_name": d.get("ref_document_name") or "",
         "h11_delivery_type_code": "",
         "h12_buyer_order_assign_id": d["buyer_ref_document"] or "",  # doc.payment_reference
         "h13_buyer_order_issue_dtm": "",
@@ -397,6 +397,19 @@ def prepare_data(d, ft, fm, pdf):
     data.update(header)
     data.update(buyer)
     data.update({"line_item_information": lines})
+    # References after the first one (H07-H10) go to ADDITIONAL_DOCUMENT.
+    # Older clients do not send this key.
+    data.update({
+        "additional_document": [
+            {
+                "a01_additional_ref_assign_id": ref.get("ref_document_id") or "",
+                "a02_additional_ref_issue_dtm": ref.get("ref_document_issue_dtm") or "",
+                "a03_additional_ref_type_code": ref.get("ref_document_type_code") or "",
+                "a04_additional_ref_document_name": ref.get("ref_document_name") or "",
+            }
+            for ref in d.get("additional_ref_documents") or []
+        ]
+    })
     data.update(footer)
     return data
 
