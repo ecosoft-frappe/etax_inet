@@ -43,6 +43,7 @@ class INETETaxDocument(Document):
 		# Prepare body
 		head_meta = frappe.get_meta(self.doctype)
 		line_meta = frappe.get_meta(self.doctype + " Line")
+		ref_meta = frappe.get_meta(self.doctype + " Additional Ref")
 		head_fields = list(filter(
 			lambda l: l.fieldtype not in ("Tab Break", "Section Break", "Column Break", "Code")
 			and l.fieldname not in (
@@ -69,8 +70,20 @@ class INETETaxDocument(Document):
 			lambda l: l.fieldtype not in ("Tab Break", "Section Break", "Column Break"),
 			line_meta.fields
 		))
+		ref_fields = list(filter(
+			lambda l: l.fieldtype not in ("Tab Break", "Section Break", "Column Break"),
+			ref_meta.fields
+		))
 		doc_content = {"LINE_ITEM_INFORMATION": []}
 		for field in head_fields:
+			if field.fieldname == "additional_document":
+				# Send only when the document has more than one reference
+				if self.additional_document:
+					doc_content[field.label] = [
+						{f.label: get_field_value(ref, f) for f in ref_fields}
+						for ref in self.additional_document
+					]
+				continue
 			doc_content[field.label] = get_field_value(self, field)
 		for line in self.line_item_information:
 			item = {}
