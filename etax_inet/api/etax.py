@@ -134,7 +134,8 @@ def prepare_data(d, ft, fm, pdf):
                 # line.product_id
                 # and line.product_id.name
                 # or line.name,
-                "l04_product_desc": "",
+                # Optional; older callers do not send it. Field length is 256.
+                "l04_product_desc": (l.get("product_desc") or "")[:256],
                 "l05_product_batch_id": "",
                 "l06_product_expire_dtm": "",
                 "l07_product_class_code": "",
